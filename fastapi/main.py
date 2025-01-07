@@ -7,6 +7,6 @@ def root():
     return {"message":"Helloo, Liza Kapopara!"}
 
 
-@app.get("/")
+@app.get("/post")
 def get_posts():
     return {"data":"This is your post"}
