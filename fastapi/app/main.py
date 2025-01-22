@@ -1,25 +1,24 @@
-from dataclasses import Field
 from typing import Optional
-from fastapi.openapi.utils import status_code_ranges
+from fastapi import FastAPI, Response, status, HTTPException, Depends
 from fastapi.params import Body
-from google.protobuf.descriptor import Descriptor
-from pydantic import BaseModel,Field
+from pydantic import BaseModel
 from random import randrange
-
-from streamlit import title
-
-from fastapi import FastAPI, Response, status, HTTPException
-# from werkzeug.exceptions import HTTPException
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+from sqlalchemy.orm import Session
+from app import models
+from .database import engine, get_db
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(docs_url="/liza")
 
+
 class liza(BaseModel):
-    title : Optional[str] = Field(None)
-    content : Optional[str]  = Field(None,description= "asdfkasdfasdfasdfasd")
-    published : Optional[bool] = Field(None)
+    title : str
+    content : str
+    published : bool
 
 try:
     conn = psycopg2.connect(host= 'localhost', database='fastapi', user='postgres', password='postgres', cursor_factory=RealDictCursor)
@@ -48,6 +47,16 @@ def find_index_post(id):
     for i,p in enumerate(my_posts):
         if p['id'] == id:
             return i
+
+
+@app.get("/sqlalchemy")
+def test_posts(db: Session = Depends(get_db)):
+
+    posts = db.query(models.Post)
+    print(posts)
+    return{"data": "dfgu"}
+
+
 
 @app.get("/posts")
 def get_posts():
@@ -116,17 +125,45 @@ def delete_post(id: int):
             detail=f"Post with id: {id} was not found"
         )
 
-@app.delete("/xyz/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_posts(id: int):
+# @app.delete("/xyz/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
+# def delete_posts(id: str):
+#
+#     cursor.execute(""" delete from posts where id = %s returning * """, (id))
+#     deleted_post = cursor.fetchone()
+#     conn.commit()
+#
+#     if deleted_post == None:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id: {id} is not exists")
+#
+#     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    cursor.execute(""" delete from posts where id = %s returning * """, (str(id)))
+
+@app.delete("/xyz/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_posts(id: str):
+    # Validate the ID range
+    try:
+        id_int = int(id)
+        if not (-2_147_483_648 <= id_int <= 2_147_483_647):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ID value {id} is out of range for integer type"
+        )
+
+    # Continue with deletion if the ID is valid
+    cursor.execute(""" DELETE FROM posts WHERE id = %s RETURNING * """, (id_int,))
     deleted_post = cursor.fetchone()
     conn.commit()
 
-    if deleted_post == None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id: {id} is not exists")
+    if not deleted_post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Post with id: {id} does not exist"
+        )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 @app.put(f"/posts/{id}")
 def update_post(id: int,post: liza):
@@ -149,11 +186,21 @@ def update_post(id: int, post: liza):
     title = post.title
     print(title,content)
 
-    cursor.execute(
-        f"""UPDATE posts SET
-            content = CASE WHEN %s IS NOT NULL THEN %s ELSE content END,
-            title = CASE WHEN %s IS NOT NULL THEN %s ELSE title END,
-            published = CASE WHEN %s IS NOT NULL THEN %s ELSE published END where id = %s""",(post.content, post.content, post.title, post.title, post.published, post.published, id))
+    # cursor.execute(
+    #     f"""UPDATE posts SET
+    #                 content = CASE when COALESCE(NULLIF (%S, ''), NULL) IS NOT NULL THEN %s ELSE content END
+    #
+    #         content = CASE WHEN %s IS NOT NULL THEN %s ELSE content END,
+    #         title = CASE WHEN %s IS NOT NULL THEN %s ELSE title END,
+    #         published = CASE WHEN %s IS NOT NULL THEN %s ELSE published END where id = %s""",(post.content, post.content, post.title, post.title, post.published, post.published, id))
+    cursor.execute("""
+    UPDATE posts SET 
+    content = CASE when COALESCE(NULLIF (%s, ''), NULL) IS NOT NULL THEN %s ELSE content END,
+    title = CASE when COALESCE(NULLIF (%s, ''), NULL) IS NOT NULL THEN %s ELSE title END,
+    published = CASE when %s IS NOT NULL THEN %s ELSE published END where id = %s returning *
+    """,(post.content, post.content, post.title, post.title, post.published, post.published, id))
+    result = cursor.fetchall()
+    print(result)
     conn.commit()
 
     # if not update_post:
