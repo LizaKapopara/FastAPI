@@ -9,16 +9,22 @@ import time
 from sqlalchemy.orm import Session
 from app import models
 from .database import engine, get_db
+import re
+
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(docs_url="/liza")
 
 
+
 class liza(BaseModel):
     title : str
     content : str
     published : bool
+    email : str
+
+
 
 try:
     conn = psycopg2.connect(host= 'localhost', database='fastapi', user='postgres', password='postgres', cursor_factory=RealDictCursor)
@@ -37,7 +43,6 @@ my_posts = [{"title": "title of post 1", "content": "content of post 1", "id": 2
 def root():
     return {"message":"Helloo, Liza Kapopara!"}
 
-
 def find_post(id):
     for p in my_posts:
         if p["id"] == id:
@@ -49,13 +54,13 @@ def find_index_post(id):
             return i
 
 
-@app.get("/sqlalchemy")
-def test_posts(db: Session = Depends(get_db)):
-
-    posts = db.query(models.Post)
-    print(posts)
-    return{"data": "dfgu"}
-
+# @app.get("/sqlalchemy")
+# def test_posts(db: Session = Depends(get_db)):
+#
+#     posts = db.query(models.Post)
+#     print(posts)
+#     return{"data": "dfgu"}
+#
 
 
 @app.get("/posts")
@@ -78,7 +83,19 @@ def getting_posts(new_post: liza):
 
 @app.post("/posts3", status_code=status.HTTP_201_CREATED)
 def create_posts(post: liza):
-    cursor.execute(""" insert into posts (title, content, published) values (%s, %s, %s) returning *""", (post.title, post.content, post.published))
+    EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    if not re.match(EMAIL_REGEX, post.email):
+        raise HTTPException(status_code = 400,
+                             detail = "invalid email",)
+
+    cursor.execute("""select email from posts where email = %s""", (post.email,))
+    existing_email = cursor.fetchone()
+
+    if existing_email:
+        raise HTTPException(status_code=400,
+                            detail="email already exists",)
+
+    cursor.execute(""" insert into posts (title, content, published, email) values (%s, %s, %s, %s) returning *""", (post.title, post.content, post.published, post.email))
     new_post = cursor.fetchone()
     conn.commit()
     return {"data": new_post}
@@ -134,35 +151,43 @@ def delete_post(id: int):
 #
 #     if deleted_post == None:
 #         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id: {id} is not exists")
-#
 #     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.delete("/xyz/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_posts(id: str):
-    # Validate the ID range
-    try:
-        id_int = int(id)
-        if not (-2_147_483_648 <= id_int <= 2_147_483_647):
-            raise ValueError
-    except ValueError:
+@app.delete("/xyz/posts/{idd}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_posts(idd: str):
+    ID_REGEX = r"^\d+$"
+
+    if not re.match(ID_REGEX, idd):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"ID value {id} is out of range for integer type"
+            status_code=400,
+            detail="Invalid ID. ID should only contain digits (0-9)."
         )
+    print(f"select count(id) as count FROM posts WHERE id = {int(idd)}")
 
-    # Continue with deletion if the ID is valid
-    cursor.execute(""" DELETE FROM posts WHERE id = %s RETURNING * """, (id_int,))
-    deleted_post = cursor.fetchone()
-    conn.commit()
+    cursor.execute("select count(id) as count FROM posts WHERE id = {}".format(int(idd)))
+    getdata  = cursor.fetchone()
+    print(getdata)
+    print(len(getdata))
+    if len(getdata) > 0 :
+        # Continue with deletion if the ID is valid
+        cursor.execute(f"DELETE FROM posts WHERE id =  {int(idd)}  RETURNING * ")
+        deleted_post = cursor.fetchone()
+        conn.commit()
 
-    if not deleted_post:
+        if not deleted_post:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Post with id: {idd} does not exist"
+            )
+
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Post with id: {id} does not exist"
+            detail=f"Post with id: {idd} does not exist"
         )
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.put(f"/posts/{id}")
@@ -209,3 +234,11 @@ def update_post(id: int, post: liza):
     return {"updated_data": "sfg"}
 
 
+@app.get("/getdataaa")
+async def getdata():
+    cursor = conn.cursor()
+    cursor.execute("select * from posts")
+    conn.commit()
+    result = cursor.fetchall()
+
+    return {"data":result}
