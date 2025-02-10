@@ -1,5 +1,12 @@
-from typing import Optional
-from fastapi import FastAPI, Response, status, HTTPException, Depends
+import os
+from typing import Optional, Tuple, Any
+from pathlib import Path
+
+from fastapi.encoders import jsonable_encoder
+from multipart import file_path
+from fastapi.responses import FileResponse
+
+from fastapi import FastAPI, Response, status, HTTPException, Depends, File, UploadFile
 from fastapi.params import Body
 from pydantic import BaseModel
 from random import randrange
@@ -24,8 +31,6 @@ class liza(BaseModel):
     published : bool
     email : str
 
-
-
 try:
     conn = psycopg2.connect(host= 'localhost', database='fastapi', user='postgres', password='postgres', cursor_factory=RealDictCursor)
     cursor = conn.cursor()
@@ -38,6 +43,7 @@ except Exception as error:
 
 
 my_posts = [{"title": "title of post 1", "content": "content of post 1", "id": 25},{"title": "favourite foods", "content": "I like pizza", "id": 26}]
+
 
 @app.get("/")
 def root():
@@ -115,7 +121,7 @@ def get_latest_post():
 
 @app.get("/posts/{id}")
 def get_post(id: str):
-    cursor.execute(""" select * from posts where id = %s""", (str(id)))
+    cursor.execute(""" select file_name from posts where id = %s""", (str(id)))
     post = cursor.fetchone()
     if not post:
         raise HTTPException(status_code = status.HTTP_404_NOT_FOUND,
@@ -242,3 +248,91 @@ async def getdata():
     result = cursor.fetchall()
 
     return {"data":result}
+
+class uploading(BaseModel):
+    id : int
+    email : str
+
+@app.post("/create_file/")
+async def image(image: UploadFile = File(...)):
+    try:
+        os.mkdir("images")
+        print(os.getcwd())
+    except Exception as e:
+        print(e)
+    file_name = os.path.join(os.getcwd(), "images", image.filename.replace(" ", "-"))
+    with open(file_name,'wb+') as f:
+        f.write(image.file.read())
+        f.close()
+    file = jsonable_encoder({"imagePath":file_name})
+    return {"filename": file_name}
+    conn.commit()
+
+@app.post("/upload")
+async def upload(post: liza = Depends(), files: list[UploadFile] = File()):
+    EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    if not re.match(EMAIL_REGEX, post.email):
+        raise HTTPException(status_code=400,
+                            detail="invalid email", )
+
+    cursor.execute("""select email from posts where email = %s""", (post.email,))
+    existing_email = cursor.fetchone()
+
+    if existing_email:
+        raise HTTPException(status_code=400,
+                            detail="email already exists", )
+
+    try:
+        upload_directory = os.path.join(os.getcwd(), "uploads")
+        os.makedirs(upload_directory, exist_ok=True)
+
+        file_paths = []
+        for file in files:
+            file_path = os.path.join(upload_directory, file.filename)
+            contents = file.file.read()
+            with open(file_path, 'wb') as f:
+                f.write(contents)
+            normalized_path = file_path.replace("\\", "/")
+            file_paths.append(normalized_path)
+
+    except Exception:
+        raise HTTPException(status_code=500, detail='Something went wrong')
+    finally:
+        for file in files:
+            file.file.close()
+
+    cursor.execute(""" insert into posts (title, content, published, email, file_name) values (%s, %s, %s, %s, %s) returning *""",
+               (post.title, post.content, post.published, post.email, ", ".join(file_paths)),)
+    new_post = cursor.fetchone()
+    return {"data": new_post}
+
+
+@app.get(f"/gettingfile/{id}")
+async def get_file(id: int):
+    try:
+        cursor.execute("""select file_name from posts where id = %s""", (id, ))
+        result = cursor.fetchone()
+
+        file_path = result['file_name']
+        print("-------",file_path.split(","))
+        ddd = file_path.split(",")
+        for i in ddd:
+            file_name = os.path.basename(i)
+            with open(file_name, "w", encoding="utf-8") as output_file:
+                output_file.write(i)
+
+        return "done"
+        conn.commit()
+        # link = []
+        # for file_path,file_name in zip(file_paths,file_names):
+        #     x = FileResponse(file_path, media_type='application/octet-stream', filename=f"{file_names}")
+        #     link.append(file_name,file_path)
+        # print(link)
+
+        # return FileResponse(i, media_type='application/octet-stream', filename=f"{file_name}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
