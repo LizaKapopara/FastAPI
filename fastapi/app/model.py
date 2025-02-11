@@ -10,8 +10,20 @@ class User(BaseModel):
     otp: int
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
+    username: Optional[str] = ""
+    fname: Optional[str] = ""
+    lname: Optional[str]= ""
+    email: Optional[str]= ""
+    password: Optional[str]= ""
+    mobile_no_countrycode: Optional[str]= ""
+    mobile_no: Optional[int] = 0
+    state: Optional[str] = ""
+    city: Optional[str] = ""
+    pincode: Optional[int] = 0
+    is_delete: Optional[bool] = False
+    is_active: Optional[bool] = False
+    is_block: Optional[bool] = False
+    ondate: Optional[datetime] = None
 
 class register_user(BaseModel):
     username: str
@@ -38,6 +50,7 @@ class send_login_otp(BaseModel):
     password: str
 
 class otp_verification(BaseModel):
+    email: str
     username: str
     otp: int
 
@@ -46,7 +59,7 @@ class Token(BaseModel):
     token_type: str
 
 class get_user(BaseModel):
-    username: str
+    email: str
 
 class updatepassword(BaseModel):
     email: str

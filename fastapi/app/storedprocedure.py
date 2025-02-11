@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 import psycopg2
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError,jwt
+from psycopg.generators import fetch
 from psycopg2.extras import RealDictCursor
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -95,13 +96,6 @@ def get_user_by_id():
         return user
     raise HTTPException(status_code=404, detail="User not found")
 
-
-@app.put("/updateusers/{user_id}", response_model=dict)
-def update_user(user_id: int, user: model.UserUpdate):
-    cursor.execute("CALL update_user(%s, %s, %s);", (user_id, user.name, user.email))
-    cursor.close()
-    conn.commit()
-    return {"message": "User updated successfully"}
 
 @app.delete("/deleteusers/{user_id}", response_model=dict)
 def delete_user(user_id: int):
@@ -322,12 +316,10 @@ def verify_otp(data: model.otp_verification):
         if not result:
             raise HTTPException(status_code=400, detail="Invalid OTP or user not found")
 
-        token = create_access_token({"sub": data.username})
+        token = create_access_token({"email": data.email})
 
 
-
-
-        return {"access_token": token, "token_type": "bearer", "username": data.username}
+        return {"access_token": token, "token_type": "bearer", "email": data.email}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -351,13 +343,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, secret_key, algorithms=[algorithm])
-        username: str = payload.get("sub")
-        if username is None:
+        email: str = payload.get("email")
+        if email is None:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid authentication credentials",
             )
-        return username  # Return username from token
+        return email  # Return username from token
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
@@ -365,12 +357,16 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
 
 @app.get("/user/details/")
-def get_user_details(username: model.get_user, current_user: str = Depends(get_current_user)):
-    if username != current_user:
+def get_user_details(email: model.get_user, current_user: str = Depends(get_current_user)):
+    print(email)
+    print(current_user)
+    if email.email != current_user:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    cursor.execute("SELECT * FROM user_registration WHERE username = %s;", (username.username,))
+
+    cursor.execute("SELECT * FROM user_registration WHERE email = %s;", (email.email,))
     demo = cursor.fetchone()
+    conn.commit()
     if not demo:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -378,28 +374,47 @@ def get_user_details(username: model.get_user, current_user: str = Depends(get_c
 
 
 
-@app.post("/updatepassword")
-def update_password(pwd: model.updatepassword):
-
-
-    cursor.execute("SELECT password from user_registration WHERE email = %s;", (pwd.email,))
-    FETCH = cursor.fetchone()
-    print(FETCH)
-
-    if not FETCH:
-        raise HTTPException(status_code=404, detail="User not found")
-
-
-    if FETCH['password'] == pwd.old_password and pwd.old_password != pwd.new_password:
-        cursor.execute("UPDATE user_registration set password = %s where email = %s;", (pwd.new_password, pwd.email))
-        conn.commit()
-
-    else:
-        raise HTTPException(status_code=401,
-                            detail = "check your password either it is incorrect or your new password can not be same as your old password!")
-
-    return {"message": "password updated successfully"}
-
 
 @app.post("/update_latest_password/")
-def update_latest_password()
+def update_latest_password(pwd: model.updatepassword, current_user: str = Depends(get_current_user)):
+    try:
+        if pwd.email == current_user:
+            if pwd.old_password == pwd.new_password:
+                raise HTTPException(status_code=401,
+                                    detail = "your new password cannot be as your old password")
+
+            cursor.execute(f"CALL update_password (%s, %s, %s, %s);", (pwd.email, pwd.old_password, pwd.new_password, 'result'))
+            cursor.execute("FETCH ALL from result;")
+            sasa = cursor.fetchall()
+            conn.commit()
+
+            return {"message": sasa}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/updateusers/", response_model=dict)
+def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_user)):
+
+    try:
+        print("------------------", user.lname)
+        print(user.email)
+        print(current_user)
+        if user.email != current_user:
+            raise HTTPException(status_code=403, detail="Unauthorized to update this user")
+
+        cursor.execute("CALL update_user(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);", (user.username, user.fname, user.lname, user.email, user.password, user.mobile_no_countrycode, user.mobile_no, user.state, user.city, user.pincode, user.is_delete, user.is_active, user.is_block, 'result'))
+        cursor.execute("fetch all from result")
+        response = cursor.fetchall()
+        print(response)
+        conn.commit()
+
+        if not response:
+            raise HTTPException(status_code=404, detail="No data returned from update")
+
+
+        return {"message": response}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

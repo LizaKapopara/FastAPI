@@ -195,7 +195,6 @@ def delete_posts(idd: str):
             detail=f"Post with id: {idd} does not exist"
         )
 
-
 @app.put(f"/posts/{id}")
 def update_post(id: int,post: liza):
     index = find_index_post(id)
