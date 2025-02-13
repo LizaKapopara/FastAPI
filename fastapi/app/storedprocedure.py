@@ -3,6 +3,7 @@ import random
 import re
 import secrets
 import smtplib
+import string
 from datetime import timedelta, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,6 +16,7 @@ from psycopg2.extras import RealDictCursor
 
 from fastapi import FastAPI, HTTPException, Depends
 from . import model
+from .model import reset_password
 
 # from model import User
 # from app import model
@@ -416,5 +418,53 @@ def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_
 
         return {"message": response}
 
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/forgot_password/")
+def forgot_password(data: model.forget_password):
+    try:
+        # otp = str(random.randint(100000, 999999))
+        otp = ''.join(random.choices(string.digits, k=6))
+
+        cursor.execute(
+            """
+            UPDATE user_registration 
+            SET login_otp = %s, otp_created_at = NOW()
+            WHERE email = %s;
+            """,
+            (otp, data.email),
+        )
+        conn.commit()
+
+        send_otp_email(data.email, otp)
+
+        return {"message": "Password reset OTP sent successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/reset_password/")
+def reset_password(data: model.reset_password):
+    try:
+        jsonobject = { "password":"data.new_password"}
+        cursor.execute("CALL reset_password(%s, %s, %s, 'result');", (data.email, data.otp, data.new_password))
+        cursor.execute("FETCH ALL FROM result;")
+        result = cursor.fetchall()
+        conn.commit()
+        return {"message": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/dynamicqueryupadte/")
+def dynamicqueryupadte(data: model.reset_password):
+    try:
+        jsonobject = { "password":f"{data.new_password}", }
+        cursor.execute("CALL update_user_details(%L, %s);", (18, jsonobject))
+        cursor.execute("FETCH ALL FROM result;")
+        result = cursor.fetchall()
+        conn.commit()
+        return {"message": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

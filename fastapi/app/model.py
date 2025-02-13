@@ -65,3 +65,11 @@ class updatepassword(BaseModel):
     email: str
     old_password: str
     new_password: str
+
+class forget_password(BaseModel):
+    email: str
+
+class reset_password(BaseModel):
+    email: str
+    otp: str
+    new_password: str

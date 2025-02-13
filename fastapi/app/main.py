@@ -66,7 +66,7 @@ def find_index_post(id):
 #     posts = db.query(models.Post)
 #     print(posts)
 #     return{"data": "dfgu"}
-#
+
 
 
 @app.get("/posts")
