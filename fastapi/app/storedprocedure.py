@@ -11,6 +11,7 @@ from email.mime.text import MIMEText
 import psycopg2
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError,jwt
+from pandas import notna
 from psycopg.generators import fetch
 from psycopg2.extras import RealDictCursor
 
@@ -39,11 +40,7 @@ except Exception as error:
     print("Error:", error)
 #     time.sleep(2)
 
-def generate_otp():
-    otp = random.randint(999,9999)
-    return otp
-
-get_otp = generate_otp()
+get_otp =''.join(random.choices(string.digits,k=6))
 
 @app.post("/users/", response_model=dict)
 def create_user(user: model.User):
@@ -74,6 +71,7 @@ def verify_user(user: model.User):
         cursor.execute("CALL verify_user(%s :: varchar(50), %s :: varchar(100), %s :: int, %s :: varchar(50))", (user.name, user.email, user.otp, ))
         result = cursor.fetchall()
         conn.commit()
+        cursor.close()
         print(result)
         return{"message": "success"}
 
@@ -94,6 +92,7 @@ def get_user_by_id():
 
     print(user)
     conn.commit()
+    cursor.close()
     if user:
         return user
     raise HTTPException(status_code=404, detail="User not found")
@@ -102,8 +101,9 @@ def get_user_by_id():
 @app.delete("/deleteusers/{user_id}", response_model=dict)
 def delete_user(user_id: int):
     cursor.execute("CALL delete_user(%s :: int);", (user_id,))
-    cursor.close()
+
     conn.commit()
+    cursor.close()
     return  {"message": "User deleted successfully"}
 
 def generate_token(email: str) -> str:
@@ -113,6 +113,7 @@ def generate_token(email: str) -> str:
 
 @app.post("/user/", response_model=dict)
 def create_users(user: model.register_user):
+    cursor = conn.cursor()
     username_regex = "^[A-Za-z][A-Za-z0-9_]{7,29}$"
     if not re.match(username_regex, user.username):
         raise HTTPException(status_code=400,
@@ -131,7 +132,7 @@ def create_users(user: model.register_user):
     countrycode_regex = "^\+([1-9]{1}[0-9]{0,3})$"
     if not re.match(countrycode_regex, user.mobile_no_countrycode):
         raise HTTPException(status_code=400,
-                            detail="password should contain atleast one uppercase character,one lowercase character,0-9 number and one special character!")
+                            detail="country code invalid")
 
     verification_expiry = datetime.now() + timedelta(minutes=10)
     print(verification_expiry)
@@ -163,9 +164,17 @@ def create_users(user: model.register_user):
                        (user.username, user.fname, user.lname, user.email, user.password, user.mobile_no_countrycode,
                         user.mobile_no, user.state, user.city, user.pincode, user.is_delete, user.is_active,
                         user.is_block, verification_expiry, verification_link, 'result'))
+
         cursor.execute("FETCH ALL from result;")
+        print("======")
+        print("======", user.username, user.fname, user.lname, user.email, user.password, user.mobile_no_countrycode,
+                        user.mobile_no, user.state, user.city, user.pincode, user.is_delete, user.is_active,
+                        user.is_block, verification_expiry, verification_link, 'result')
+        print("======")
         sasa = cursor.fetchall()
         print("result", sasa)
+        conn.commit()
+        cursor.close()
 
         send_verification_email(user.email, user.username, verification_token)
 
@@ -179,6 +188,7 @@ def create_users(user: model.register_user):
     #     conn.commit()
 
 def send_verification_email(to_email: str, username: str, token: str):
+
     verification_link = f"http://localhost:8000/verify-email?token={token}"
 
     msg = MIMEMultipart()
@@ -202,7 +212,7 @@ def send_verification_email(to_email: str, username: str, token: str):
 
 @app.post("/verify-email/")
 def verify_email(user: model.verify_user):
-
+    cursor = conn.cursor()
     try:
         cursor.execute("Select email,verification_link from user_registration WHERE email = %s and is_active = false", (user.email, ))
         fetch = cursor.fetchone()
@@ -230,6 +240,8 @@ def verify_email(user: model.verify_user):
                 raise HTTPException(status_code=400, detail="Verification link has expired. Please register again.")
 
             cursor.execute("UPDATE user_registration SET is_active = TRUE WHERE email = %s", (user.email,))
+            conn.commit()
+            cursor.close()
 
 
 
@@ -249,7 +261,7 @@ def verify_email(user: model.verify_user):
 
 @app.post("/loginuser/")
 def send_login_otp(user: model.send_login_otp):
-
+    cursor = conn.cursor()
     try:
         cursor.execute(f"CALL user_login_request(%s, %s, %s);",(user.username, user.password, 'getresult'))
         cursor.execute("FETCH ALL from getresult;")
@@ -258,6 +270,7 @@ def send_login_otp(user: model.send_login_otp):
         # cursor.close()
         # cursor.execute(f" Close {getresult};")
         conn.commit()
+        cursor.close()
 
         if not result:
             raise HTTPException(status_code=400, detail="username or password invalid")
@@ -308,23 +321,23 @@ oauth = OAuth2PasswordBearer(tokenUrl="login")
 
 @app.post("/verifyotp/")
 def verify_otp(data: model.otp_verification):
-    try:
-        cursor.execute("CALL verify_user_otp(%s, %s, 'verify_result');", (data.username, data.otp))
-        cursor.execute("FETCH ALL FROM verify_result;")
-        result = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute("CALL verify_user_otp (%s, %s, 'result');", (data.username, data.otp))
+    cursor.execute("FETCH ALL FROM result;")
+    result = cursor.fetchall()
+    conn.commit()
+    cursor.close()
+    print("result------------------------", result)
+    if result is not None:
+        if result[0]['msgcode'] == 'true':
+            token = create_access_token({"email": data.email})
+            return {"access_token": token, "token_type": "bearer", "email": data.email}
+        else:
+            raise HTTPException(status_code=400, detail=result[0]['msg'])
+    else:
+        raise HTTPException(status_code=400, detail='Data Not Found')
 
-        conn.commit()
 
-        if not result:
-            raise HTTPException(status_code=400, detail="Invalid OTP or user not found")
-
-        token = create_access_token({"email": data.email})
-
-
-        return {"access_token": token, "token_type": "bearer", "email": data.email}
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
     # finally:
     #     cursor.close()
@@ -360,6 +373,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
 @app.get("/user/details/")
 def get_user_details(email: model.get_user, current_user: str = Depends(get_current_user)):
+    cursor = conn.cursor()
     print(email)
     print(current_user)
     if email.email != current_user:
@@ -369,6 +383,7 @@ def get_user_details(email: model.get_user, current_user: str = Depends(get_curr
     cursor.execute("SELECT * FROM user_registration WHERE email = %s;", (email.email,))
     demo = cursor.fetchone()
     conn.commit()
+    cursor.close()
     if not demo:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -379,6 +394,7 @@ def get_user_details(email: model.get_user, current_user: str = Depends(get_curr
 
 @app.post("/update_latest_password/")
 def update_latest_password(pwd: model.updatepassword, current_user: str = Depends(get_current_user)):
+    cursor = conn.cursor()
     try:
         if pwd.email == current_user:
             if pwd.old_password == pwd.new_password:
@@ -389,6 +405,7 @@ def update_latest_password(pwd: model.updatepassword, current_user: str = Depend
             cursor.execute("FETCH ALL from result;")
             sasa = cursor.fetchall()
             conn.commit()
+            cursor.close()
 
             return {"message": sasa}
 
@@ -398,7 +415,7 @@ def update_latest_password(pwd: model.updatepassword, current_user: str = Depend
 
 @app.put("/updateusers/", response_model=dict)
 def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_user)):
-
+    cursor = conn.cursor()
     try:
         print("------------------", user.lname)
         print(user.email)
@@ -411,6 +428,7 @@ def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_
         response = cursor.fetchall()
         print(response)
         conn.commit()
+        cursor.close()
 
         if not response:
             raise HTTPException(status_code=404, detail="No data returned from update")
@@ -424,6 +442,7 @@ def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_
 
 @app.post("/forgot_password/")
 def forgot_password(data: model.forget_password):
+    cursor = conn.cursor()
     try:
         # otp = str(random.randint(100000, 999999))
         otp = ''.join(random.choices(string.digits, k=6))
@@ -437,6 +456,7 @@ def forgot_password(data: model.forget_password):
             (otp, data.email),
         )
         conn.commit()
+        cursor.close()
 
         send_otp_email(data.email, otp)
 
@@ -446,12 +466,14 @@ def forgot_password(data: model.forget_password):
 
 @app.post("/reset_password/")
 def reset_password(data: model.reset_password):
+    cursor = conn.cursor()
     try:
         jsonobject = { "password":"data.new_password"}
         cursor.execute("CALL reset_password(%s, %s, %s, 'result');", (data.email, data.otp, data.new_password))
         cursor.execute("FETCH ALL FROM result;")
         result = cursor.fetchall()
         conn.commit()
+        cursor.close()
         return {"message": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -459,12 +481,14 @@ def reset_password(data: model.reset_password):
 
 @app.post("/dynamicqueryupadte/")
 def dynamicqueryupadte(data: model.reset_password):
+    cursor = conn.cursor()
     try:
         jsonobject = { "password":f"{data.new_password}", }
         cursor.execute("CALL update_user_details(%L, %s);", (18, jsonobject))
         cursor.execute("FETCH ALL FROM result;")
         result = cursor.fetchall()
         conn.commit()
+        cursor.close()
         return {"message": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
