@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -54,9 +53,6 @@ class otp_verification(BaseModel):
     username: str
     otp: int
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
 class get_user(BaseModel):
     email: str

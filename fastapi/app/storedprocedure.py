@@ -32,7 +32,7 @@ app = FastAPI(docs_url="/liza")
 
 try:
     conn = psycopg2.connect(host= 'localhost', database='jointask', user='postgres', password='postgres', cursor_factory=RealDictCursor)
-    cursor = conn.cursor()
+    # cursor = conn.cursor()
     print("Database connection was successful")
 
 except Exception as error:
@@ -42,41 +42,41 @@ except Exception as error:
 
 get_otp =''.join(random.choices(string.digits,k=6))
 
-@app.post("/users/", response_model=dict)
-def create_user(user: model.User):
-    name_regex = "^[A-Za-z ]+$"
-    if not re.match(name_regex, user.name):
-        raise HTTPException(status_code=400,
-                            detail="Invalid name")
+# @app.post("/users/", response_model=dict)
+# def create_user(user: model.User):
+#     name_regex = "^[A-Za-z ]+$"
+#     if not re.match(name_regex, user.name):
+#         raise HTTPException(status_code=400,
+#                             detail="Invalid name")
+#
+#     EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+#     if not re.match(EMAIL_REGEX, user.email):
+#         raise HTTPException(status_code=400,
+#                             detail="invalid email", )
+#     try:
+#         cursor.execute("SELECT 1 FROM users WHERE email = %s;", (user.email,))
+#         if cursor.fetchone():
+#             raise HTTPException(status_code=400, detail=f"{user.email} Email already exists create another one!")
+#
+#         cursor.execute("CALL create_user(%s :: varchar(50), %s :: varchar(100), %s :: int);", (user.name, user.email, get_otp))
+#         conn.commit()
+#         return {"your otp is": get_otp}
+#
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
-    EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    if not re.match(EMAIL_REGEX, user.email):
-        raise HTTPException(status_code=400,
-                            detail="invalid email", )
-    try:
-        cursor.execute("SELECT 1 FROM users WHERE email = %s;", (user.email,))
-        if cursor.fetchone():
-            raise HTTPException(status_code=400, detail=f"{user.email} Email already exists create another one!")
-
-        cursor.execute("CALL create_user(%s :: varchar(50), %s :: varchar(100), %s :: int);", (user.name, user.email, get_otp))
-        conn.commit()
-        return {"your otp is": get_otp}
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/verifyuser/", response_model = dict)
-def verify_user(user: model.User):
-    try:
-        cursor.execute("CALL verify_user(%s :: varchar(50), %s :: varchar(100), %s :: int, %s :: varchar(50))", (user.name, user.email, user.otp, ))
-        result = cursor.fetchall()
-        conn.commit()
-        cursor.close()
-        print(result)
-        return{"message": "success"}
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# @app.post("/verifyuser/", response_model = dict)
+# def verify_user(user: model.User):
+#     try:
+#         cursor.execute("CALL verify_user(%s :: varchar(50), %s :: varchar(100), %s :: int, %s :: varchar(50))", (user.name, user.email, user.otp, ))
+#         result = cursor.fetchall()
+#         conn.commit()
+#         cursor.close()
+#         print(result)
+#         return{"message": "success"}
+#
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 
 
@@ -117,7 +117,17 @@ def create_users(user: model.register_user):
     username_regex = "^[A-Za-z][A-Za-z0-9_]{7,29}$"
     if not re.match(username_regex, user.username):
         raise HTTPException(status_code=400,
-                            detail="Invalid username")
+                            detail="Invalid username, your username should contain only alphanumeric character and underscore and it should be minimum of length 7!")
+
+    fname_regex = "[a-zA-Z '-]{1,25}"
+    if not re.match(fname_regex, user.fname):
+        raise HTTPException(status_code=400,
+                            detail="Invalid fname, your username should contain only alphabets and hyphen and apostrophe and should maximum of 24 character and minimum of 1 character!")
+
+    lname_regex = "[a-zA-Z '-]{1,25}"
+    if not re.match(lname_regex, user.lname):
+        raise HTTPException(status_code=400,
+                            detail="Invalid lname, your username should contain only alphabets and hyphen and apostrophe and should maximum of 24 character and minimum of 1 character!")
 
     EMAIL_REGEX = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
     if not re.match(EMAIL_REGEX, user.email):
@@ -421,7 +431,7 @@ def update_user(user: model.UserUpdate, current_user: str = Depends(get_current_
         print(user.email)
         print(current_user)
         if user.email != current_user:
-            raise HTTPException(status_code=403, detail="Unauthorized to update this user")
+            raise HTTPException(status_code=403, detail="Unauthorized to update this user as you have to enter email throw which you created your account!")
 
         cursor.execute("CALL update_user(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);", (user.username, user.fname, user.lname, user.email, user.password, user.mobile_no_countrycode, user.mobile_no, user.state, user.city, user.pincode, user.is_delete, user.is_active, user.is_block, 'result'))
         cursor.execute("fetch all from result")
